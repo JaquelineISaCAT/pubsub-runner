@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+
+lock
+pending
+openclaw-doorbell.log
+stdout.log
