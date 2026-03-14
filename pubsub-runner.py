@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import hmac
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -22,13 +23,17 @@ MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", "1048576"))
 LOCK_FILE = Path(os.environ.get("LOCK_FILE", str(BASE_DIR / "lock")))
 PENDING_FILE = Path(os.environ.get("PENDING_FILE", str(BASE_DIR / "pending")))
 LOG_FILE = Path(os.environ.get("LOG_FILE", str(BASE_DIR / "openclaw-doorbell.log")))
+# Customize the message passed to `openclaw agent --message` here.
+OPENCLAW_AGENT_MESSAGE = (
+    "retrieve unread email metadata in jaqueline.aime.grimper@gmail.com using gog skill, and launch email-parsing workflow"
+)
 DOCKER_COMMAND = [
     "docker",
     "exec",
     "openclaw-u4wa-openclaw-1",
     "bash",
     "-lc",
-    "openclaw agent --agent gog-main --message 'retrieve latest mail in jaqueline.aime.grimper@gmail.com using gog skill, save it to your workspace folder'",
+    f"openclaw agent --agent gog-main --message {shlex.quote(OPENCLAW_AGENT_MESSAGE)}",
 ]
 
 
