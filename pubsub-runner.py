@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import hmac
+import errno
 import os
 import shlex
 import subprocess
@@ -19,6 +20,7 @@ PORT = int(os.environ.get("PORT", "8788"))
 ENDPOINT_PATH = os.environ.get("ENDPOINT_PATH", "/pubsub")
 SHARED_TOKEN = os.environ.get("SHARED_TOKEN", "SECRET")
 DELAY_SECONDS = int(os.environ.get("DELAY_SECONDS", "1800"))
+STALE_PENDING_GRACE_SECONDS = int(os.environ.get("STALE_PENDING_GRACE_SECONDS", "300"))
 MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", "1048576"))
 LOCK_FILE = Path(os.environ.get("LOCK_FILE", str(BASE_DIR / "lock")))
 PENDING_FILE = Path(os.environ.get("PENDING_FILE", str(BASE_DIR / "pending")))
@@ -52,8 +54,119 @@ def log_line(message: str) -> None:
         handle.write(f"{utc_now()} {message}\n")
 
 
-def spawn_detached_worker() -> None:
-    subprocess.Popen(
+def pending_marker_text(created_at: str, worker_pid: int | None = None) -> str:
+    lines = [created_at]
+    if worker_pid is not None:
+        lines.append(f"pid={worker_pid}")
+    return "\n".join(lines) + "\n"
+
+
+def read_pending_marker() -> tuple[datetime | None, int | None]:
+    if not PENDING_FILE.exists():
+        return None, None
+
+    try:
+        raw = PENDING_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return None, None
+
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    created_at = None
+    worker_pid = None
+
+    if lines:
+        try:
+            created_at = datetime.fromisoformat(lines[0])
+        except ValueError:
+            created_at = None
+        else:
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+
+    for line in lines[1:]:
+        if not line.startswith("pid="):
+            continue
+        try:
+            worker_pid = int(line.split("=", 1)[1])
+        except ValueError:
+            worker_pid = None
+        break
+
+    return created_at, worker_pid
+
+
+def marker_age_seconds(created_at: datetime | None) -> float | None:
+    if created_at is not None:
+        return max(0.0, (datetime.now(timezone.utc) - created_at).total_seconds())
+
+    try:
+        stat_result = PENDING_FILE.stat()
+    except OSError:
+        return None
+
+    return max(0.0, time.time() - stat_result.st_mtime)
+
+
+def pid_is_running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError as exc:
+        if exc.errno == errno.ESRCH:
+            return False
+        return True
+    else:
+        return True
+
+
+def pending_marker_is_stale() -> tuple[bool, str | None]:
+    if not PENDING_FILE.exists():
+        return False, None
+
+    created_at, worker_pid = read_pending_marker()
+    age_seconds = marker_age_seconds(created_at)
+
+    if worker_pid is not None:
+        if pid_is_running(worker_pid):
+            return False, None
+        if age_seconds is None or age_seconds >= 10:
+            return True, f"worker pid {worker_pid} is no longer running"
+        return False, None
+
+    threshold = DELAY_SECONDS + STALE_PENDING_GRACE_SECONDS
+    if age_seconds is not None and age_seconds > threshold:
+        return True, f"marker age {int(age_seconds)}s exceeded threshold {threshold}s"
+
+    return False, None
+
+
+def clear_stale_pending_marker() -> bool:
+    is_stale, reason = pending_marker_is_stale()
+    if not is_stale:
+        return False
+
+    try:
+        PENDING_FILE.unlink(missing_ok=True)
+    except OSError as exc:
+        log_line(f"failed to remove stale pending marker: {exc!r}")
+        return False
+
+    log_line(f"removed stale pending marker: {reason}")
+    return True
+
+
+def recover_pending_state() -> None:
+    ensure_runtime_files()
+    with LOCK_FILE.open("r+", encoding="utf-8") as lock_handle:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        clear_stale_pending_marker()
+
+
+def spawn_detached_worker() -> int:
+    process = subprocess.Popen(
         [sys.executable, str(Path(__file__).resolve()), "--run-pending"],
         cwd=str(BASE_DIR),
         stdin=subprocess.DEVNULL,
@@ -63,23 +176,32 @@ def spawn_detached_worker() -> None:
         close_fds=True,
         env=os.environ.copy(),
     )
+    return process.pid
 
 
 def schedule_if_needed() -> bool:
     ensure_runtime_files()
     with LOCK_FILE.open("r+", encoding="utf-8") as lock_handle:
         fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        clear_stale_pending_marker()
         if PENDING_FILE.exists():
             return False
 
-        PENDING_FILE.write_text(f"{utc_now()}\n", encoding="utf-8")
-        spawn_detached_worker()
+        created_at = utc_now()
+        PENDING_FILE.write_text(pending_marker_text(created_at), encoding="utf-8")
+        try:
+            worker_pid = spawn_detached_worker()
+        except Exception:
+            PENDING_FILE.unlink(missing_ok=True)
+            raise
+
+        PENDING_FILE.write_text(pending_marker_text(created_at, worker_pid), encoding="utf-8")
         log_line(f"scheduled delayed run in {DELAY_SECONDS} seconds")
         return True
 
 
 def run_pending_job() -> int:
-    log_line(f"pending worker started; sleeping for {DELAY_SECONDS} seconds")
+    log_line(f"pending worker started; pid={os.getpid()}; sleeping for {DELAY_SECONDS} seconds")
     time.sleep(DELAY_SECONDS)
 
     result = None
@@ -168,6 +290,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> int:
     ensure_runtime_files()
+    recover_pending_state()
 
     if len(sys.argv) > 1 and sys.argv[1] == "--run-pending":
         return run_pending_job()

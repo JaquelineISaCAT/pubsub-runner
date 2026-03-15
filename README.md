@@ -52,6 +52,10 @@ When a valid push arrives:
 If another push arrives while `pending` exists, the script still returns
 `200 OK`, but it does not schedule a second run.
 
+If the host or service restarts and leaves behind a stale `pending`
+marker, the script now clears it automatically during startup and before
+scheduling new work.
+
 ## Files
 
 Everything lives in `/root/.pubsub-runner/`.
@@ -74,6 +78,8 @@ These are the current built-in defaults from the script:
 - Default token if unset: `SECRET`
 - Delay env var: `DELAY_SECONDS`
 - Default delay: `1800` seconds
+- Stale marker grace env var: `STALE_PENDING_GRACE_SECONDS`
+- Default stale marker grace: `300` seconds
 
 The Docker command currently executed after the delay is:
 
@@ -170,6 +176,8 @@ After the delay:
 - no response on `127.0.0.1:PORT`: the Python script is not running
 - `pending` never clears: the Docker command may be hanging or taking
   much longer than expected
+- repeated `already-pending` for hours: the script may have recovered
+  from an old restart; check the log for `removed stale pending marker`
 
 ## Limitations
 
