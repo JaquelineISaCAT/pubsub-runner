@@ -15,19 +15,19 @@ import fcntl
 
 
 BASE_DIR = Path(__file__).resolve().parent
-HOST = os.environ.get("HOST", "127.0.0.1")
-PORT = int(os.environ.get("PORT", "8788"))
-ENDPOINT_PATH = os.environ.get("ENDPOINT_PATH", "/pubsub")
+HOST = "127.0.0.1"
+PORT = 8788
+ENDPOINT_PATH = "/pubsub"
 SHARED_TOKEN = os.environ.get("SHARED_TOKEN", "SECRET")
-DELAY_SECONDS = int(os.environ.get("DELAY_SECONDS", "1800"))
-STALE_PENDING_GRACE_SECONDS = int(os.environ.get("STALE_PENDING_GRACE_SECONDS", "300"))
-MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", "1048576"))
-LOCK_FILE = Path(os.environ.get("LOCK_FILE", str(BASE_DIR / "lock")))
-PENDING_FILE = Path(os.environ.get("PENDING_FILE", str(BASE_DIR / "pending")))
-LOG_FILE = Path(os.environ.get("LOG_FILE", str(BASE_DIR / "openclaw-doorbell.log")))
+DELAY_SECONDS = 1800
+STALE_PENDING_GRACE_SECONDS = 300
+MAX_BODY_BYTES = 1048576
+LOCK_FILE = BASE_DIR / "lock"
+PENDING_FILE = BASE_DIR / "pending"
+LOG_FILE = BASE_DIR / "openclaw-doorbell.log"
 # Customize the message passed to `openclaw agent --message` here.
 OPENCLAW_AGENT_MESSAGE = (
-    "retrieve unread email metadata in jaqueline.aime.grimper@gmail.com using gog skill, and launch email-parsing workflow"
+    "retrieve unread email metadata in jaqueline.aime.grimper@gmail.com using gog skill, and launch email-router workflow"
 )
 DOCKER_COMMAND = [
     "docker",
