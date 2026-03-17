@@ -27,7 +27,7 @@ PENDING_FILE = BASE_DIR / "pending"
 LOG_FILE = BASE_DIR / "openclaw-doorbell.log"
 # Customize the message passed to `openclaw agent --message` here.
 OPENCLAW_AGENT_MESSAGE = (
-    "retrieve unread email metadata in jaqueline.aime.grimper@gmail.com using gog skill, and launch email-router workflow"
+    "Fetch unread emails with the exact TOOLS.md command and save one unmodified raw JSON file per email to /data/.openclaw/workspace/shared-gog/emails/ as <message.id>.json; do not clean, transform, rename, or summarize the data."
 )
 DOCKER_COMMAND = [
     "docker",
